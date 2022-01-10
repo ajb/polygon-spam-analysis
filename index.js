@@ -1,22 +1,17 @@
 const chalk = require('chalk')
 const ethers = require('ethers')
-const delay = require('delay')
-const axios = require('axios')
+const filter = require('lodash.filter')
+const reduce = require('lodash.reduce')
 const uniq = require('lodash.uniq')
 const compact = require('lodash.compact')
 
-const START_BLOCK = 23565146
-const END_BLOCK = 23565149
+const START_BLOCK = 23565100
+const END_BLOCK = 23565200
 const SPAM_CUTOFF = 5
 
 async function main () {
-  const polygonscan = axios.create({
-    baseURL: 'https://api.polygonscan.com/',
-    timeout: 5000,
-    params: { apikey: process.env.POLYGONSCAN_API_KEY }
-  })
-
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
+  const spamRates = []
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
     console.log(chalk.blue.underline(`Checking block ${i}`))
@@ -28,26 +23,9 @@ async function main () {
     const txTos = compact(block.transactions.map(tx => tx.to))
 
     for (const address of uniq(txTos)) {
-      await delay(200) // polygonscan rate limit?
-      console.log(chalk.dim(`checking address ${address}`))
-      const resp = await polygonscan.get('/api', {
-        params: {
-          module: 'account',
-          action: 'txlist',
-          address: address,
-          startblock: i,
-          endblock: i,
-          page: 1,
-          offset: 100
-        }
-      })
+      const isSpam = filter(block.transactions, t => t.to === address).length > SPAM_CUTOFF
 
-      if (!resp.data || resp.data.status !== '1') {
-        console.log(chalk.red('unexpected response from polygonscan'))
-        continue
-      }
-
-      if (resp.data.result.length > SPAM_CUTOFF) {
+      if (isSpam) {
         spammersInBlock[address] = true
         console.log(chalk.red(`found block spammer ${address}`))
       }
@@ -55,14 +33,23 @@ async function main () {
 
     for (const tx of block.transactions) {
       total += 1
-      if (tx.to && spammersInBlock[tx.to]) spam += 1
+      if (tx.to && spammersInBlock[tx.to]) {
+        spam += 1
+      }
     }
 
-    console.log(chalk.bold(`Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${Math.round(spam / total * 100)}%`))
+    const spamRate = spam > 0 ? Math.round(spam / total * 100) : 0
+    spamRates.push(spamRate)
+    console.log(chalk.bold(`Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${spamRate}%`))
     console.log('')
   }
 
   provider._websocket.close()
+
+  const sum = reduce(spamRates, function (sum, a) { return sum + a }, 0)
+  const avg = Math.round(sum / spamRates.length)
+  console.log('')
+  console.log(chalk.bold(`Analyzed ${spamRates.length} blocks. Average spam rate ${avg}%`))
 }
 
 main()
