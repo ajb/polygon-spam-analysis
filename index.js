@@ -1,11 +1,12 @@
+const chalk = require('chalk')
 const ethers = require('ethers')
 const delay = require('delay')
 const axios = require('axios')
 const uniq = require('lodash.uniq')
 const compact = require('lodash.compact')
 
-const START_BLOCK = 23564229
-const END_BLOCK = 23564234
+const START_BLOCK = 23564227
+const END_BLOCK = 23564233
 const SPAM_CUTOFF = 5
 
 async function main () {
@@ -18,6 +19,7 @@ async function main () {
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
+    console.log(chalk.blue.underline(`Checking block ${i}`))
     let total = 0
     let spam = 0
     const spammersInBlock = {}
@@ -27,7 +29,7 @@ async function main () {
 
     for (const address of uniq(txTos)) {
       await delay(200) // polygonscan rate limit?
-      console.log('checking address', address)
+      console.log(chalk.dim(`checking address ${address}`))
       const resp = await polygonscan.get('/api', {
         params: {
           module: 'account',
@@ -41,13 +43,13 @@ async function main () {
       })
 
       if (!resp.data || resp.data.status !== '1') {
-        console.error('unexpected response from polygonscan')
+        console.log(chalk.red('unexpected response from polygonscan'))
         continue
       }
 
       if (resp.data.result.length > SPAM_CUTOFF) {
         spammersInBlock[address] = true
-        console.log('found block spammer', address)
+        console.log(chalk.red(`found block spammer ${address}`))
       }
     }
 
@@ -56,7 +58,8 @@ async function main () {
       if (tx.to && spammersInBlock[tx.to]) spam += 1
     }
 
-    console.log(`---> Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${Math.round(spam / total * 100)}%`)
+    console.log(chalk.bold(`Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${Math.round(spam / total * 100)}%`))
+    console.log('')
   }
 
   provider._websocket.close()
