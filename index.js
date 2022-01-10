@@ -5,8 +5,8 @@ const axios = require('axios')
 const uniq = require('lodash.uniq')
 const compact = require('lodash.compact')
 
-const START_BLOCK = 23564227
-const END_BLOCK = 23564233
+const START_BLOCK = 23565146
+const END_BLOCK = 23565149
 const SPAM_CUTOFF = 5
 
 async function main () {
