@@ -14,7 +14,10 @@ const SPAM_CUTOFF = 5
 const OK_LIST = [
   '0x2953399124F0cBB46d2CbACD8A89cF0599974963', // opensea
   '0xdf9B4b57865B403e08c85568442f95c26b7896b0', // sunflower
-  '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff' // qs router
+  '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff', // qs router
+  '0x58a15701ED1aD95BBa625A05f41e50dCE62aA14e', // microbuddies
+  '0x1a1ec25DC08e98e5E93F1104B5e5cdD298707d31', // metamask router
+  '0xDef1C0ded9bec7F1a1670819833240f027b25EfF' // 0x
 ]
 
 async function main () {
