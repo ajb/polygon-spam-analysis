@@ -5,9 +5,13 @@ const reduce = require('lodash.reduce')
 const uniq = require('lodash.uniq')
 const compact = require('lodash.compact')
 
-const START_BLOCK = 23565100
-const END_BLOCK = 23565200
+const START_BLOCK = 23432417
+const END_BLOCK = 23432517
 const SPAM_CUTOFF = 5
+
+const OK_LIST = [
+  '0x2953399124F0cBB46d2CbACD8A89cF0599974963' // opensea
+]
 
 async function main () {
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
@@ -23,7 +27,7 @@ async function main () {
     const txTos = compact(block.transactions.map(tx => tx.to))
 
     for (const address of uniq(txTos)) {
-      const isSpam = filter(block.transactions, t => t.to === address).length > SPAM_CUTOFF
+      const isSpam = filter(block.transactions, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
 
       if (isSpam) {
         spammersInBlock[address] = true
