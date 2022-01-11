@@ -1,5 +1,7 @@
 const fs = require('fs')
 const path = require('path')
+const delay = require('delay')
+const axios = require('axios')
 const chalk = require('chalk')
 const ethers = require('ethers')
 const filter = require('lodash.filter')
@@ -12,6 +14,7 @@ const END_BLOCK = parseInt(process.env.END_BLOCK, 10)
 const SPAM_CUTOFF = 5
 
 const OK_LIST = [
+  '0xF715bEb51EC8F63317d66f491E37e7BB048fCc2d', // 0x something
   '0x2953399124F0cBB46d2CbACD8A89cF0599974963', // opensea
   '0xdf9B4b57865B403e08c85568442f95c26b7896b0', // sunflower
   '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff', // qs router
@@ -21,6 +24,32 @@ const OK_LIST = [
   '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // wmatic
   '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619' // weth
 ]
+
+const polygonscan = axios.create({
+  baseURL: 'https://api.polygonscan.com/',
+  timeout: 5000,
+  params: { apikey: process.env.POLYGONSCAN_API_KEY }
+})
+
+const verifiedCache = {}
+async function contractVerified (address) {
+  if (typeof verifiedCache[address] !== 'undefined') return verifiedCache[address]
+
+  process.stdout.write(chalk.dim(`Checking to see if ${address} has a verified source...`))
+
+  await delay(200)
+  const resp = await polygonscan.get('/api', {
+    params: {
+      module: 'contract',
+      action: 'getabi',
+      address: address
+    }
+  })
+
+  verifiedCache[address] = resp.data && resp.data.status === '1'
+  console.log(chalk.dim(verifiedCache[address]))
+  return verifiedCache[address]
+}
 
 async function main () {
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
@@ -39,6 +68,8 @@ async function main () {
       const isSpam = filter(block.transactions, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
 
       if (isSpam) {
+        const verified = await contractVerified(address)
+        if (verified) continue
         spammersInBlock[address] = true
         console.log(chalk.red(`found block spammer ${address}`))
       }
