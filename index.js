@@ -17,7 +17,9 @@ const OK_LIST = [
   '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff', // qs router
   '0x58a15701ED1aD95BBa625A05f41e50dCE62aA14e', // microbuddies
   '0x1a1ec25DC08e98e5E93F1104B5e5cdD298707d31', // metamask router
-  '0xDef1C0ded9bec7F1a1670819833240f027b25EfF' // 0x
+  '0xDef1C0ded9bec7F1a1670819833240f027b25EfF', // 0x
+  '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // wmatic
+  '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619' // weth
 ]
 
 async function main () {
