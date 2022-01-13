@@ -43,6 +43,8 @@ async function contractVerified (address) {
     })
   } catch (err) {
     console.error(chalk.red('polygonscan API error'))
+    await delay(2000)
+    return contractVerified(address) // retry after delay
   }
 
   verifiedCache[address] = resp.data && resp.data.status === '1'
