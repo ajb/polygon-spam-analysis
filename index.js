@@ -1,72 +1,24 @@
 const fs = require('fs')
 const path = require('path')
 const mkdirp = require('mkdirp')
-const delay = require('delay')
-const axios = require('axios')
 const chalk = require('chalk')
 const ethers = require('ethers')
 const filter = require('lodash.filter')
 const reduce = require('lodash.reduce')
 const uniq = require('lodash.uniq')
 const compact = require('lodash.compact')
+const { contractVerified, saveVerifiedCache } = require('./polygonscan')
 
 const START_BLOCK = parseInt(process.env.START_BLOCK, 10)
 const END_BLOCK = parseInt(process.env.END_BLOCK, 10)
-const totalBlocks = END_BLOCK - START_BLOCK
+const TOTAL_BLOCKS = END_BLOCK - START_BLOCK
 const SPAM_CUTOFF = 5
+const OUTPUT_PATH = path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/`)
+mkdirp.sync(OUTPUT_PATH)
 
 const OK_LIST = [
   '0x6e5Fa679211d7F6b54e14E187D34bA547c5d3fe0' // sunflower minter
 ]
-
-function saveVerifiedCache () {
-  fs.writeFileSync(verifiedCachePath, JSON.stringify(verifiedCache), 'utf-8')
-}
-
-let verifiedCache
-const polygonscan = axios.create({
-  baseURL: 'https://api.polygonscan.com/',
-  timeout: 5000,
-  params: { apikey: process.env.POLYGONSCAN_API_KEY }
-})
-const verifiedCachePath = path.join(__dirname, './out/verifiedCache.json')
-if (fs.existsSync(verifiedCachePath)) {
-  verifiedCache = JSON.parse(fs.readFileSync(verifiedCachePath, 'utf-8'))
-} else {
-  verifiedCache = {}
-}
-async function contractVerified (address, tryCount) {
-  if (typeof verifiedCache[address] !== 'undefined') return verifiedCache[address]
-  if (!tryCount) tryCount = 0
-  tryCount++
-
-  process.stdout.write(chalk.dim(`Checking to see if ${address} has a verified source...`))
-
-  await delay(400)
-  let resp
-  try {
-    resp = await polygonscan.get('/api', {
-      params: {
-        module: 'contract',
-        action: 'getabi',
-        address: address
-      }
-    })
-  } catch (err) {
-    console.error(chalk.red('polygonscan API error'))
-    if (tryCount < 5) {
-      await delay(2000)
-      return contractVerified(address, tryCount) // retry after delay
-    } else {
-      saveVerifiedCache()
-      throw new Error('cannot continue without polygonscan')
-    }
-  }
-
-  verifiedCache[address] = resp.data && resp.data.status === '1'
-  console.log(chalk.dim(verifiedCache[address]))
-  return verifiedCache[address]
-}
 
 async function main () {
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
@@ -75,18 +27,22 @@ async function main () {
   const eoas = {}
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
-    console.log(chalk.blue.underline(`${i - START_BLOCK + 1}/${totalBlocks} Checking block ${i}`))
+    console.log(chalk.blue.underline(`${i - START_BLOCK + 1}/${TOTAL_BLOCKS} Checking block ${i}`))
     let total = 0
     let spam = 0
     const spammersInBlock = {}
 
+    // get block with all transactions
     const block = await provider.getBlockWithTransactions(i)
+
+    // find unique "to" addresses
     const txTos = compact(block.transactions.map(tx => tx.to))
 
+    // for each "to" address, determine whether it is spam or not
     for (const address of uniq(txTos)) {
-      const isSpam = filter(block.transactions, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
+      const aboveCutoff = filter(block.transactions, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
 
-      if (isSpam) {
+      if (aboveCutoff) {
         const verified = await contractVerified(address)
         if (verified) continue
         spammersInBlock[address] = true
@@ -94,6 +50,7 @@ async function main () {
       }
     }
 
+    // for each tx in the block, we can now mark it as spam / not spam
     for (const tx of block.transactions) {
       if (!eoas[tx.from]) eoas[tx.from] = { address: tx.from, spamCount: 0, txCount: 0 }
       eoas[tx.from].txCount++
@@ -107,6 +64,7 @@ async function main () {
       }
     }
 
+    // assemble a spamrate and save the block data
     const spamRate = spam > 0 ? Math.round(spam / total * 100) : 0
     spamRates.push({ block: i, rate: spamRate, spam, total })
     console.log(chalk.bold(`Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${spamRate}%`))
@@ -122,28 +80,30 @@ async function main () {
   console.log('')
   console.log('')
 
-  mkdirp.sync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/`))
-
+  // save the blocks data
   const blocksCsv = [
     'block,rate,spam,total',
     ...spamRates.map(s => `${s.block},${s.rate},${s.spam},${s.total}`)
   ].join('\n')
-  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/blocks.csv`), blocksCsv, 'utf-8')
+  fs.writeFileSync(path.join(OUTPUT_PATH, 'blocks.csv'), blocksCsv, 'utf-8')
 
+  // save the spammers data
   const sortedSpamCounts = Object.values(totalSpamCounts).sort((a, b) => a.count > b.count ? -1 : 1)
   const spammersCsv = [
     'contract,numTransactions',
     ...sortedSpamCounts.map(c => `${c.to},${c.count}`)
   ].join('\n')
-  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/spammers.csv`), spammersCsv, 'utf-8')
+  fs.writeFileSync(path.join(OUTPUT_PATH, 'spammers.csv'), spammersCsv, 'utf-8')
 
+  // save the EOAs
   const sortedEoas = Object.values(eoas).sort((a, b) => a.spamCount > b.spamCount ? -1 : 1)
   const eoasCsv = [
     'address,spamcount,txcount',
     ...sortedEoas.map(e => `${e.address},${e.spamCount},${e.txCount}`)
   ].join('\n')
-  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/eoas.csv`), eoasCsv, 'utf-8')
+  fs.writeFileSync(path.join(OUTPUT_PATH, 'eoas.csv'), eoasCsv, 'utf-8')
 
+  // cache the verified contracts for next time
   saveVerifiedCache()
 }
 
