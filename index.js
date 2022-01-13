@@ -12,7 +12,7 @@ const { contractVerified, saveVerifiedCache } = require('./polygonscan')
 const START_BLOCK = parseInt(process.env.START_BLOCK, 10)
 const END_BLOCK = parseInt(process.env.END_BLOCK, 10)
 const TOTAL_BLOCKS = END_BLOCK - START_BLOCK
-const SPAM_CUTOFF = 5
+const SPAM_CUTOFF = 8
 const OUTPUT_PATH = path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/`)
 mkdirp.sync(OUTPUT_PATH)
 
@@ -25,6 +25,22 @@ async function main () {
   const spamRates = []
   const totalSpamCounts = []
   const eoas = {}
+  const blocks = {}
+
+  async function fetchBlocks (blockNumbers) {
+    for (const blockNumber of blockNumbers) {
+      if (blocks[blockNumber]) continue
+      blocks[blockNumber] = await provider.getBlockWithTransactions(blockNumber)
+    }
+  }
+
+  async function removeBlocks (minBlockNumberToKeep) {
+    for (const k of Object.keys(blocks)) {
+      if (k < minBlockNumberToKeep) {
+        delete blocks[k]
+      }
+    }
+  }
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
     console.log(chalk.blue.underline(`${i - START_BLOCK + 1}/${TOTAL_BLOCKS} Checking block ${i}`))
@@ -33,14 +49,20 @@ async function main () {
     const spammersInBlock = {}
 
     // get block with all transactions
-    const block = await provider.getBlockWithTransactions(i)
+    await fetchBlocks([i - 1, i, i + 1])
 
     // find unique "to" addresses
-    const txTos = compact(block.transactions.map(tx => tx.to))
+    const txTos = compact(blocks[i].transactions.map(tx => tx.to))
+
+    const txsForThisBlockPrevBlockAndNextBlock = [
+      ...blocks[i - 1].transactions,
+      ...blocks[i].transactions,
+      ...blocks[i + 1].transactions
+    ]
 
     // for each "to" address, determine whether it is spam or not
     for (const address of uniq(txTos)) {
-      const aboveCutoff = filter(block.transactions, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
+      const aboveCutoff = filter(txsForThisBlockPrevBlockAndNextBlock, t => t.to === address).length >= SPAM_CUTOFF && !OK_LIST.includes(address)
 
       if (aboveCutoff) {
         const verified = await contractVerified(address)
@@ -51,7 +73,7 @@ async function main () {
     }
 
     // for each tx in the block, we can now mark it as spam / not spam
-    for (const tx of block.transactions) {
+    for (const tx of blocks[i].transactions) {
       if (!eoas[tx.from]) eoas[tx.from] = { address: tx.from, spamCount: 0, txCount: 0 }
       eoas[tx.from].txCount++
 
@@ -69,6 +91,7 @@ async function main () {
     spamRates.push({ block: i, rate: spamRate, spam, total })
     console.log(chalk.bold(`Block ${i}, found ${spam} spam txs, ${total} total transactions. Spam rate ${spamRate}%`))
     console.log('')
+    removeBlocks(i - 1)
   }
 
   provider._websocket.close()
