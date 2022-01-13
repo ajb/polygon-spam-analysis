@@ -19,15 +19,26 @@ const OK_LIST = [
   '0x6e5Fa679211d7F6b54e14E187D34bA547c5d3fe0' // sunflower minter
 ]
 
+function saveVerifiedCache () {
+  fs.writeFileSync(verifiedCachePath, JSON.stringify(verifiedCache), 'utf-8')
+}
+
+let verifiedCache
 const polygonscan = axios.create({
   baseURL: 'https://api.polygonscan.com/',
   timeout: 5000,
   params: { apikey: process.env.POLYGONSCAN_API_KEY }
 })
-
-const verifiedCache = {}
-async function contractVerified (address) {
+const verifiedCachePath = path.join(__dirname, './out/verifiedCache.json')
+if (fs.existsSync(verifiedCachePath)) {
+  verifiedCache = JSON.parse(fs.readFileSync(verifiedCachePath, 'utf-8'))
+} else {
+  verifiedCache = {}
+}
+async function contractVerified (address, tryCount) {
   if (typeof verifiedCache[address] !== 'undefined') return verifiedCache[address]
+  if (!tryCount) tryCount = 0
+  tryCount++
 
   process.stdout.write(chalk.dim(`Checking to see if ${address} has a verified source...`))
 
@@ -43,8 +54,13 @@ async function contractVerified (address) {
     })
   } catch (err) {
     console.error(chalk.red('polygonscan API error'))
-    await delay(2000)
-    return contractVerified(address) // retry after delay
+    if (tryCount < 5) {
+      await delay(2000)
+      return contractVerified(address, tryCount) // retry after delay
+    } else {
+      saveVerifiedCache()
+      throw new Error('cannot continue without polygonscan')
+    }
   }
 
   verifiedCache[address] = resp.data && resp.data.status === '1'
@@ -127,6 +143,8 @@ async function main () {
     ...sortedEoas.map(e => `${e.address},${e.spamCount},${e.txCount}`)
   ].join('\n')
   fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/eoas.csv`), eoasCsv, 'utf-8')
+
+  saveVerifiedCache()
 }
 
 main()
