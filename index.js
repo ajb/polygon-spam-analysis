@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const mkdirp = require('mkdirp')
 const delay = require('delay')
 const axios = require('axios')
 const chalk = require('chalk')
@@ -11,18 +12,11 @@ const compact = require('lodash.compact')
 
 const START_BLOCK = parseInt(process.env.START_BLOCK, 10)
 const END_BLOCK = parseInt(process.env.END_BLOCK, 10)
+const totalBlocks = END_BLOCK - START_BLOCK
 const SPAM_CUTOFF = 5
 
 const OK_LIST = [
-  '0xF715bEb51EC8F63317d66f491E37e7BB048fCc2d', // 0x something
-  '0x2953399124F0cBB46d2CbACD8A89cF0599974963', // opensea
-  '0xdf9B4b57865B403e08c85568442f95c26b7896b0', // sunflower
-  '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff', // qs router
-  '0x58a15701ED1aD95BBa625A05f41e50dCE62aA14e', // microbuddies
-  '0x1a1ec25DC08e98e5E93F1104B5e5cdD298707d31', // metamask router
-  '0xDef1C0ded9bec7F1a1670819833240f027b25EfF', // 0x
-  '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // wmatic
-  '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619' // weth
+  '0x6e5Fa679211d7F6b54e14E187D34bA547c5d3fe0' // sunflower minter
 ]
 
 const polygonscan = axios.create({
@@ -37,14 +31,19 @@ async function contractVerified (address) {
 
   process.stdout.write(chalk.dim(`Checking to see if ${address} has a verified source...`))
 
-  await delay(200)
-  const resp = await polygonscan.get('/api', {
-    params: {
-      module: 'contract',
-      action: 'getabi',
-      address: address
-    }
-  })
+  await delay(400)
+  let resp
+  try {
+    resp = await polygonscan.get('/api', {
+      params: {
+        module: 'contract',
+        action: 'getabi',
+        address: address
+      }
+    })
+  } catch (err) {
+    console.error(chalk.red('polygonscan API error'))
+  }
 
   verifiedCache[address] = resp.data && resp.data.status === '1'
   console.log(chalk.dim(verifiedCache[address]))
@@ -54,9 +53,11 @@ async function contractVerified (address) {
 async function main () {
   const provider = new ethers.providers.WebSocketProvider(process.env.POLYGON_RPC_WS)
   const spamRates = []
+  const totalSpamCounts = []
+  const eoas = {}
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
-    console.log(chalk.blue.underline(`Checking block ${i}`))
+    console.log(chalk.blue.underline(`${i - START_BLOCK + 1}/${totalBlocks} Checking block ${i}`))
     let total = 0
     let spam = 0
     const spammersInBlock = {}
@@ -76,8 +77,14 @@ async function main () {
     }
 
     for (const tx of block.transactions) {
+      if (!eoas[tx.from]) eoas[tx.from] = { address: tx.from, spamCount: 0, txCount: 0 }
+      eoas[tx.from].txCount++
+
       total += 1
       if (tx.to && spammersInBlock[tx.to]) {
+        eoas[tx.from].spamCount++
+        if (!totalSpamCounts[tx.to]) totalSpamCounts[tx.to] = { to: tx.to, count: 0 }
+        totalSpamCounts[tx.to].count += 1
         spam += 1
       }
     }
@@ -97,13 +104,27 @@ async function main () {
   console.log('')
   console.log('')
 
-  const csvArr = ['block,rate,spam,total']
+  mkdirp.sync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/`))
 
-  for (const s of spamRates) {
-    csvArr.push(`${s.block},${s.rate},${s.spam},${s.total}`)
-  }
+  const blocksCsv = [
+    'block,rate,spam,total',
+    ...spamRates.map(s => `${s.block},${s.rate},${s.spam},${s.total}`)
+  ].join('\n')
+  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/blocks.csv`), blocksCsv, 'utf-8')
 
-  fs.writeFileSync(path.join(__dirname, './out.csv'), csvArr.join('\n'), 'utf-8')
+  const sortedSpamCounts = Object.values(totalSpamCounts).sort((a, b) => a.count > b.count ? -1 : 1)
+  const spammersCsv = [
+    'contract,numTransactions',
+    ...sortedSpamCounts.map(c => `${c.to},${c.count}`)
+  ].join('\n')
+  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/spammers.csv`), spammersCsv, 'utf-8')
+
+  const sortedEoas = Object.values(eoas).sort((a, b) => a.spamCount > b.spamCount ? -1 : 1)
+  const eoasCsv = [
+    'address,spamcount,txcount',
+    ...sortedEoas.map(e => `${e.address},${e.spamCount},${e.txCount}`)
+  ].join('\n')
+  fs.writeFileSync(path.join(__dirname, `./out/${START_BLOCK}-${END_BLOCK}/eoas.csv`), eoasCsv, 'utf-8')
 }
 
 main()

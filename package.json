@@ -16,6 +16,7 @@
     "lodash.compact": "^3.0.1",
     "lodash.filter": "^4.6.0",
     "lodash.reduce": "^4.6.0",
-    "lodash.uniq": "^4.5.0"
+    "lodash.uniq": "^4.5.0",
+    "mkdirp": "^1.0.4"
   }
 }
