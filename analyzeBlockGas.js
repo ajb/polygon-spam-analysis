@@ -14,7 +14,9 @@ async function main () {
   const gasUseds = []
 
   for (let i = START_BLOCK; i < END_BLOCK; i++) {
-    console.log(chalk.blue.underline(`${i - START_BLOCK + 1}/${TOTAL_BLOCKS} Checking block ${i}`))
+    process.stdout.clearLine()
+    process.stdout.cursorTo(0)
+    process.stdout.write(chalk.blue.underline(`${i - START_BLOCK + 1}/${TOTAL_BLOCKS} Checking block ${i}`))
     const block = await provider.getBlock(i)
     gasLimits.push(BigNumber(block.gasLimit.toString()))
     gasUseds.push(BigNumber(block.gasUsed.toString()))
@@ -31,6 +33,7 @@ async function main () {
   const averageGasLimit = gasLimitSum.div(gasLimits.length).shiftedBy(-6).toFixed() + 'm'
   const averageGasUsed = gasUsedSum.div(gasUseds.length).shiftedBy(-6).toFixed() + 'm'
 
+  console.log('')
   console.log({
     START_BLOCK,
     END_BLOCK,
