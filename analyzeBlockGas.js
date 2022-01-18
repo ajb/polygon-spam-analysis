@@ -32,6 +32,8 @@ async function main () {
   const averageGasUsed = gasUsedSum.div(gasUseds.length).shiftedBy(-6).toFixed() + 'm'
 
   console.log({
+    START_BLOCK,
+    END_BLOCK,
     averageGasLimit,
     averageGasUsed
   })
